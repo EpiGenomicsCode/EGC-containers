@@ -1,0 +1,48 @@
+Bootstrap: docker
+From: continuumio/miniconda3:23.5.2-0
+
+%help
+    Singularity container with bowtie2, samtools, bwa, minimap2, and STAR installed via bioconda.
+
+%labels
+    Author William KM Lai
+    Version v1.0
+    Description "Singularity container with bowtie2 (2.5.4), samtools (1.21), bwa (0.7.18), minimap2 (2.28), and STAR (2.7.11b)"
+
+%post
+    # Configure conda channels
+    conda config --add channels defaults
+    conda config --add channels bioconda
+    conda config --add channels conda-forge
+
+    # Install explicit versions of aligners + tools
+    conda install -y \
+        bowtie2=2.5.4 \
+        samtools=1.21 \
+        bwa=0.7.18 \
+        minimap2=2.28 \
+        star=2.7.11b
+
+    # Clean up to reduce image size
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/bin:$PATH
+
+%runscript
+    echo "Alignment toolkit container"
+    echo "Includes:"
+    echo "  - bowtie2 2.5.4"
+    echo "  - samtools 1.21"
+    echo "  - bwa 0.7.18"
+    echo "  - minimap2 2.28"
+    echo "  - STAR 2.7.11b"
+    echo ""
+    echo "Examples:"
+    echo "  bowtie2 --version"
+    echo "  samtools --version"
+    echo "  bwa"
+    echo "  minimap2 --version"
+    echo "  STAR --version"
+    exec "$@"
+

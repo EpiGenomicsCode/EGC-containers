@@ -1,0 +1,54 @@
+Bootstrap: docker
+From: continuumio/miniconda3:23.5.2-0
+
+%help
+    Comprehensive RNA-seq toolkit container:
+    STAR, samtools, HTSeq, featureCounts, Salmon, Kallisto
+
+%labels
+    Author William KM Lai
+    Version v1.0
+    Description "Singularity container with STAR (2.7.11b), samtools (1.21), HTSeq (2.0.3), featureCounts (subread 2.0.6), Salmon (1.11.0), Kallisto (0.48.0)"
+
+%post
+    # Configure conda channels
+    conda config --add channels defaults
+    conda config --add channels bioconda
+    conda config --add channels conda-forge
+
+    # Install RNA-seq tools with explicit versions
+    conda install -y \
+        star=2.7.11b \
+        samtools=1.21 \
+        htseq=2.0.9 \
+        subread=2.1.1 \
+        salmon=1.10.3 \
+        kallisto=0.51.1 \
+        boost-cpp=1.85.0
+
+    # Cleanup
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/bin:$PATH
+    export LD_LIBRARY_PATH=/opt/conda/lib:$LD_LIBRARY_PATH
+
+%runscript
+    echo "RNA-seq toolkit container"
+    echo "Includes:"
+    echo "  - STAR 2.7.11b"
+    echo "  - samtools 1.21"
+    echo "  - HTSeq 2.0.9"
+    echo "  - featureCounts (subread 2.1.1)"
+    echo "  - Salmon 1.10.3"
+    echo "  - Kallisto 0.51.1"
+    echo ""
+    echo "Examples:"
+    echo "  STAR --version"
+    echo "  samtools --version"
+    echo "  htseq-count --help"
+    echo "  featureCounts -v"
+    echo "  salmon --version"
+    echo "  kallisto version"
+    exec "$@"
+

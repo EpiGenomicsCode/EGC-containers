@@ -1,0 +1,27 @@
+Bootstrap: docker
+From: continuumio/miniconda3:23.5.2-0
+
+%labels
+    Author William KM Lai
+    Description "Container with bedtools from Bioconda"
+    Version "1.0"
+
+%post
+    # Add conda channels
+    conda config --add channels defaults
+    conda config --add channels bioconda
+    conda config --add channels conda-forge
+
+    # Install bedtools explicitly
+    conda install -y bedtools=2.31.1
+
+    # Clean up conda cache
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/bin:$PATH
+    export LD_LIBRARY_PATH=/opt/conda/lib:$LD_LIBRARY_PATH
+
+%runscript
+    exec bedtools "$@"
+

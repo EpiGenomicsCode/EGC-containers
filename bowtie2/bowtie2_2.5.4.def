@@ -1,0 +1,28 @@
+Bootstrap: docker
+From: continuumio/miniconda3:23.5.2-0
+
+%help
+    Singularity container with bowtie2 installed via bioconda.
+
+%labels
+    Author William KM Lai
+    Version v1.0
+    Description "Singularity container with bowtie2 from bioconda"
+
+%post
+    # Configure conda channels
+    conda config --add channels defaults
+    conda config --add channels bioconda
+    conda config --add channels conda-forge
+
+    # Install specific bowtie2 version
+    conda install -y bowtie2=2.5.4
+
+    # Clean up to reduce image size
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/bin:$PATH
+
+%runscript
+    exec bowtie2 "$@"
