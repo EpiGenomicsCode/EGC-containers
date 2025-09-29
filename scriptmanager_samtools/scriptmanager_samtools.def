@@ -1,0 +1,69 @@
+Bootstrap: docker
+From: bitnami/minideb:latest
+
+%labels
+    Author Olivia Wen-Mei Lang
+    Version v1.3
+    Description ScriptManager (v0.15) and Samtools (1.21) + HTSlib (1.21) (with htscodecs) on Bitnami Minideb
+
+%post
+    # Update and install build dependencies
+    apt-get update && apt-get install -y \
+        build-essential \
+        autoconf \
+        automake \
+        default-jre \
+        libncurses5-dev \
+        libbz2-dev \
+        liblzma-dev \
+        libcurl4-openssl-dev \
+        wget \
+        zlib1g-dev \
+        ca-certificates \
+        make \
+        pkg-config \
+        libssl-dev \
+        libdeflate-dev \
+        libtool \
+        unzip \
+        curl
+
+    # Build HTSlib (with submodules)
+    cd /opt
+    wget https://github.com/samtools/htslib/releases/download/1.21/htslib-1.21.tar.bz2
+    tar -xvjf htslib-1.21.tar.bz2
+    mv htslib-1.21 htslib
+    cd htslib
+    autoreconf -i
+    ./configure --prefix=/opt/htslib
+    make
+    make install
+
+    # Add HTSLIB to PATH
+    echo 'export PATH=/opt/htslib/bin:$PATH' >> /environment
+
+    # Build Samtools with HTSlib
+    cd /opt
+    wget https://github.com/samtools/samtools/releases/download/1.21/samtools-1.21.tar.bz2
+    tar -xvjf samtools-1.21.tar.bz2
+    mv samtools-1.21 samtools
+    cd samtools
+    autoreconf -i
+    ./configure --prefix=/opt/samtools --with-htslib=/opt/htslib
+    make
+    make install
+
+    # Add Samtools to PATH
+    echo 'export PATH=/opt/samtools/bin:$PATH' >> /environment
+
+    # Clean-up
+    rm /opt/samtools-1.21.tar.bz2 /opt/htslib-1.21.tar.bz2
+
+    # Set-up ScriptManager
+    cd /opt
+    wget -O ScriptManager.jar https://github.com/CEGRcode/scriptmanager/releases/download/v0.15/ScriptManager-v0.15.jar
+    echo '#!/bin/bash\njava -jar /opt/ScriptManager.jar "$@"' > /usr/bin/scriptmanager
+    chmod +x /usr/bin/scriptmanager
+
+%environment
+    export PATH=/opt/samtools/bin:$PATH
