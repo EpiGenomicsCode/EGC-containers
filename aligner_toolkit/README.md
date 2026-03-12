@@ -61,6 +61,16 @@ Example command to run samtools
 singularity exec aligner_toolkit.sif samtools
 ```
 
+Example command to run picard MarkDuplicates
+```
+apptainer exec aligner_toolkit.sif picard MarkDuplicates \
+    I=sorted.bam \
+    O=dedup.bam \
+    M=dedup_metrics.txt \
+    CREATE_INDEX=true \
+    VALIDATION_STRINGENCY=SILENT
+```
+
 Example command to run bowtie2 piping directly into samtools (call container multiple times)
 ```
 singularity exec aligner_toolkit.sif \
@@ -77,4 +87,13 @@ bowtie2 -x ref/genome_index -1 reads_1.fq -2 reads_2.fq \
   | samtools sort -o aligned.sorted.bam
 samtools index aligned.sorted.bam
 exit
+```
+
+Example command running container once
+```
+apptainer exec aligner_toolkit.sif bash -c "
+bwa mem ref.fa R1.fastq.gz R2.fastq.gz | \
+samtools sort -o sorted.bam -
+picard MarkDuplicates I=sorted.bam O=dedup.bam M=dedup_metrics.txt
+"
 ```

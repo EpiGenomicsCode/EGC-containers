@@ -2,12 +2,12 @@ Bootstrap: docker
 From: continuumio/miniconda3:23.5.2-0
 
 %help
-    Singularity container with bowtie2, samtools, bwa, minimap2, and STAR installed via bioconda.
+    Singularity container with bowtie2, samtools, bwa, minimap2, STAR, and Picard installed via bioconda.
 
 %labels
     Author William KM Lai
-    Version v1.0
-    Description "Singularity container with bowtie2 (2.5.4), samtools (1.21), bwa (0.7.18), minimap2 (2.28), and STAR (2.7.11b)"
+    Version v1.1
+    Description "Singularity container with bowtie2 (2.5.4), samtools (1.21), bwa (0.7.18), minimap2 (2.28), STAR (2.7.11b), and picard (3.1.1)"
 
 %post
     # Configure conda channels
@@ -21,7 +21,8 @@ From: continuumio/miniconda3:23.5.2-0
         samtools=1.21 \
         bwa=0.7.18 \
         minimap2=2.28 \
-        star=2.7.11b
+        star=2.7.11b \
+        picard=3.1.1
 
     # Clean up to reduce image size
     conda clean -afy
@@ -37,6 +38,7 @@ From: continuumio/miniconda3:23.5.2-0
     echo "  - bwa 0.7.18"
     echo "  - minimap2 2.28"
     echo "  - STAR 2.7.11b"
+    echo "  - picard 3.1.1"
     echo ""
     echo "Examples:"
     echo "  bowtie2 --version"
@@ -44,5 +46,5 @@ From: continuumio/miniconda3:23.5.2-0
     echo "  bwa"
     echo "  minimap2 --version"
     echo "  STAR --version"
+    echo "  picard MarkDuplicates --help"
     exec "$@"
-
