@@ -1,0 +1,61 @@
+Bootstrap: docker
+From: continuumio/miniconda3:23.5.2-0
+
+%help
+    Singularity container with deepTools installed via bioconda.
+
+    Example commands:
+
+      bamCoverage \
+        -b input.bam \
+        -o coverage.bw \
+        --binSize 10 \
+        --normalizeUsing CPM
+
+      bamCompare \
+        -b1 treatment.bam \
+        -b2 control.bam \
+        -o log2ratio.bw \
+        --operation log2
+
+      computeMatrix reference-point \
+        -S coverage.bw \
+        -R genes.bed \
+        -o matrix.gz
+
+%labels
+    Author William KM Lai
+    Version v1.0
+    Description "Singularity container with deepTools (3.5.6)"
+
+%post
+    # Configure conda channels
+    conda config --add channels defaults
+    conda config --add channels bioconda
+    conda config --add channels conda-forge
+
+    # Install deepTools
+    conda install -y \
+        deeptools=3.5.6
+
+    # Clean up to reduce image size
+    conda clean -afy
+
+%environment
+    export PATH=/opt/conda/bin:$PATH
+
+%runscript
+    echo "deepTools container"
+    echo "Includes:"
+    echo "  - deepTools 3.5.6"
+    echo ""
+    echo "Common tools:"
+    echo "  bamCoverage"
+    echo "  bamCompare"
+    echo "  computeMatrix"
+    echo "  plotHeatmap"
+    echo "  plotProfile"
+    echo ""
+    echo "Example:"
+    echo "  bamCoverage --help"
+    exec "$@"
