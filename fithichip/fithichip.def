@@ -1,0 +1,241 @@
+Bootstrap: docker
+From: continuumio/miniconda3:23.5.2-0
+
+%labels
+    Author          "Olivia Lang"
+    Version         "FitHiChIP-11.0_HiCPro-3.1.0"
+    Description     "FitHiChIP + HiC-Pro via continuumio/miniconda3:23.5.2-0"
+
+%help
+    Singularity container for FitHiChIP, built on the official Miniconda3 base image.
+
+    Tool install locations:
+        conda env   : /opt/conda
+        HiC-Pro     : /usr/local/bin/HiC-Pro_3.1.0
+        FitHiChIP   : /opt/FitHiChIP
+
+    Run FitHiChIP:
+        FitHiChIP_HiCPro.sh uses relative paths to call its R scripts,
+        so it MUST be run from /opt/FitHiChIP as the working directory:
+
+        singularity run fithichip.sif /absolute/path/to/config.txt
+
+%environment
+    export PATH="/usr/local/bin:/opt/conda/bin:/usr/local/bin/HiC-Pro_3.1.0/bin:/usr/local/bin/HiC-Pro_3.1.0/scripts:/opt/FitHiChIP:$PATH"
+    export R_LIBS_SITE="/opt/R_libs"
+    export LC_ALL=C
+    export LANG=C
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    export LC_ALL=C
+    export LANG=C
+    export PATH="/opt/conda/bin:$PATH"
+
+    # -----------------------------------------------------------------------
+    # 1. System packages — only what conda cannot provide
+    #    git for cloning, build-essential + make for HiC-Pro compilation
+    # -----------------------------------------------------------------------
+    apt-get update -y
+    apt-get install -y --no-install-recommends \
+        bc \
+        build-essential \
+        git \
+        make \
+        unzip
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+    # -----------------------------------------------------------------------
+    # 2. Configure conda channels
+    #    flexible priority avoids unsolvable environments when mixing
+    #    bioconda and conda-forge packages
+    # -----------------------------------------------------------------------
+    conda config --add channels defaults
+    conda config --add channels bioconda
+    conda config --add channels conda-forge
+    conda config --set channel_priority flexible
+
+    # -----------------------------------------------------------------------
+    # 3. All tools and Python libraries in a single conda solve
+    #    python=3.11 required; all HiC-Pro Python deps installed here:
+    #    bx-python, scipy, pysam, iced (checked by check_pythonlib.py)
+    #    hic-straw is the bioconda package name for hicstraw
+    # -----------------------------------------------------------------------
+    conda install --yes \
+        python=3.11 \
+        bedtools \
+        bowtie2 \
+        bx-python \
+        cooler \
+        hic-straw \
+        iced \
+        macs2 \
+        networkx \
+        pysam \
+        r-base \
+        r-plyr \
+        samtools \
+        scipy \
+        ucsc-bedtobigbed
+    conda clean --all --yes
+
+    # -----------------------------------------------------------------------
+    # 4. R packages
+    # -----------------------------------------------------------------------
+    mkdir -p /opt/R_libs
+    export R_LIBS_SITE=/opt/R_libs
+
+    # CRAN packages required by FitHiChIP
+    Rscript -e '
+        options(repos = c(CRAN = "https://cloud.r-project.org"))
+        install.packages(
+            c("optparse", "ggplot2", "data.table", "splines",
+              "fdrtool", "plyr", "dplyr"),
+            lib = "/opt/R_libs",
+            Ncpus = parallel::detectCores()
+        )
+    '
+
+    # Bioconductor packages for differential loop analysis
+    Rscript -e '
+        options(repos = c(CRAN = "https://cloud.r-project.org"))
+        install.packages("BiocManager", lib = "/opt/R_libs")
+        library(BiocManager, lib.loc = "/opt/R_libs")
+        BiocManager::install(
+            c("GenomicRanges", "edgeR"),
+            lib = "/opt/R_libs",
+            ask = FALSE,
+            update = FALSE
+        )
+    '
+
+    # -----------------------------------------------------------------------
+    # 5. Fix conda which function
+    #    conda init defines a shell function named 'which' that shadows the
+    #    system binary. Unset it in /etc/bash.bashrc so it is removed for all
+    #    bash shells at both build time and runtime.
+    # -----------------------------------------------------------------------
+    echo "unset -f which 2>/dev/null || true" >> /etc/bash.bashrc
+
+    # -----------------------------------------------------------------------
+    # 6. HiC-Pro
+    #    The continuumio base image provides conda at /opt/conda — no symlink needed.
+    #    HiC-Pro default install prefix produces the tree at /usr/local/bin/HiC-Pro_3.1.0/
+    # -----------------------------------------------------------------------
+    # Clone into a separate source dir; make install copies built files to
+    # the default PREFIX (/usr/local/bin/HiC-Pro_3.1.0).
+    git clone --branch v3.1.0 --depth 1 https://github.com/nservant/HiC-Pro.git /opt/src/HiC-Pro
+    cd /opt/src/HiC-Pro
+
+    CONDA_BIN=/opt/conda/bin
+    sed -i "s|BOWTIE2_PATH =.*|BOWTIE2_PATH = ${CONDA_BIN}|"   config-install.txt
+    sed -i "s|SAMTOOLS_PATH =.*|SAMTOOLS_PATH = ${CONDA_BIN}|" config-install.txt
+    sed -i "s|PYTHON_PATH =.*|PYTHON_PATH = ${CONDA_BIN}|"     config-install.txt
+    sed -i "s|R_PATH =.*|R_PATH = ${CONDA_BIN}|"               config-install.txt
+    make configure
+    make CONFIG_SYS=config-install.txt install
+
+    # FitHiChIP locates HiC-Pro via: HiCProBasedir=$(dirname $(dirname $(which HiC-Pro)))
+    # /usr/local/bin/HiC-Pro_3.1.0/bin is on PATH so which returns the full path,
+    # and dirname/dirname correctly resolves to /usr/local/bin/HiC-Pro_3.1.0
+    # where scripts/build_matrix lives.
+
+    # Remove the source tree now that the install is complete
+    rm -rf /opt/src/HiC-Pro
+
+    # -----------------------------------------------------------------------
+    # 7. FitHiChIP
+    # -----------------------------------------------------------------------
+    cd /opt
+    git clone --branch 11.0 --depth 1 https://github.com/ay-lab/FitHiChIP.git
+    chmod -R +x /opt/FitHiChIP/*.sh 2>/dev/null || true
+
+    # Pre-download interact.as from UCSC to /opt/FitHiChIP
+    # DiffAnalysisHiChIP.r checks for this file relative to getwd();
+    # FitHiChIP should be run from /opt/FitHiChIP so it is found here.
+    wget -q https://genome.ucsc.edu/goldenPath/help/examples/interact/interact.as \
+        -O /opt/FitHiChIP/interact.as
+
+    # Ensure R_LIBS_SITE is set for interactive bash shells (e.g. singularity shell)
+    echo "export R_LIBS_SITE=/opt/R_libs" >> /etc/bash.bashrc
+
+    echo ""
+    echo "=== FitHiChIP build complete ==="
+
+%runscript
+    if [ $# -eq 0 ]; then
+        echo "FitHiChIP Singularity container"
+        echo ""
+        echo "Usage:"
+        echo "  singularity run fithichip.sif <absolute_path_to_config>"
+        echo ""
+        echo "  The config file must use absolute paths for all inputs/outputs."
+        echo "  FitHiChIP is run from /opt/FitHiChIP as the working directory."
+        exit 1
+    fi
+    cd /opt/FitHiChIP
+    exec bash FitHiChIP_HiCPro.sh -C "$1"
+
+%test
+    export PATH="/usr/local/bin:/opt/conda/bin:/usr/local/bin/HiC-Pro_3.1.0/bin:/usr/local/bin/HiC-Pro_3.1.0/scripts:/opt/FitHiChIP:$PATH"
+    export R_LIBS_SITE="/opt/R_libs"
+
+    echo "=== which ==="
+    unset -f which 2>/dev/null || true
+    type which
+    type HiC-Pro
+
+    echo ""
+    echo "=== Tool versions ==="
+    python3  --version
+    bedtools --version  | head -1
+    bowtie2  --version  | head -1
+    bgzip    --version  | head -1
+    tabix    --version  | head -1
+    macs2    --version
+    samtools --version  | head -1
+    R        --version  | head -1
+    HiC-Pro  --version
+
+    echo ""
+    echo "=== HiC-Pro internals ==="
+    test -f /usr/local/bin/HiC-Pro_3.1.0/scripts/build_matrix \
+        && echo "  build_matrix found" \
+        || { echo "  ERROR: build_matrix not found"; exit 1; }
+    test -f /usr/local/bin/HiC-Pro_3.1.0/scripts/cutsite_trimming \
+        && echo "  cutsite_trimming found" \
+        || { echo "  ERROR: cutsite_trimming not found"; exit 1; }
+
+    echo ""
+    echo "=== Python libraries ==="
+    python3 -c "import bx;           print('bx-python   ', bx.__version__)"
+    python3 -c "import cooler;       print('cooler      ', cooler.__version__)"
+    python3 -c "import hicstraw;     print('hicstraw    ', hicstraw.__version__)"
+    python3 -c "import iced;         print('iced        ', iced.__version__)"
+    python3 -c "import networkx;     print('networkx    ', networkx.__version__)"
+    python3 -c "import numpy;        print('numpy       ', numpy.__version__)"
+    python3 -c "import pysam;        print('pysam       ', pysam.__version__)"
+    python3 -c "import scipy;        print('scipy       ', scipy.__version__)"
+
+    echo ""
+    echo "=== R packages ==="
+    Rscript -e '
+        .libPaths(c("/opt/R_libs", .libPaths()))
+        pkgs <- c("optparse","ggplot2","data.table","splines",
+                  "fdrtool","plyr","dplyr","GenomicRanges","edgeR")
+        for (pkg in pkgs) {
+            if (!requireNamespace(pkg, quietly = TRUE))
+                stop(paste("MISSING R package:", pkg))
+            cat(sprintf("  %-20s OK\n", pkg))
+        }
+    '
+
+    echo ""
+    echo "=== FitHiChIP scripts ==="
+    test -f /opt/FitHiChIP/FitHiChIP_HiCPro.sh \
+        && echo "  FitHiChIP_HiCPro.sh found" \
+        || { echo "  ERROR: FitHiChIP_HiCPro.sh not found"; exit 1; }
+
+    echo ""
+    echo "=== All checks passed ==="
