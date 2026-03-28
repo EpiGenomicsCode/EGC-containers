@@ -1,18 +1,15 @@
 Bootstrap: docker
 From: ubuntu:22.04
-
 %labels
     Author William KM Lai
     Version 1.0
-    Description "MEME Suite 5.5.8 container (Bioconda install via Miniconda/mamba)""
-
+    Description "MEME Suite 5.5.8 container (Bioconda install via Miniconda/mamba)"
 %help
     This container installs MEME Suite v5.5.8 via conda (bioconda).
     Usage:
       singularity shell meme.sif
       singularity exec meme.sif meme-chip -h
       singularity run meme.sif
-
 %environment
     export CONDA_DIR=/opt/conda
     export PATH=$CONDA_DIR/bin:$PATH
@@ -20,7 +17,6 @@ From: ubuntu:22.04
     export PATH=/usr/local/bin:$PATH
     export LANG=C.UTF-8
     export LC_ALL=C.UTF-8
-
 %post
     set -e -x
     apt-get update && apt-get install -y --no-install-recommends \
@@ -28,49 +24,41 @@ From: ubuntu:22.04
         build-essential libssl-dev libbz2-dev liblzma-dev \
         zlib1g-dev libncurses5-dev libncursesw5-dev sudo \
         && apt-get clean && rm -rf /var/lib/apt/lists/*
-
     CONDA_DIR=/opt/conda
     MINICONDA_INSTALLER=Miniconda3-latest-Linux-x86_64.sh
     wget --no-verbose https://repo.anaconda.com/miniconda/$MINICONDA_INSTALLER -O /tmp/$MINICONDA_INSTALLER
     bash /tmp/$MINICONDA_INSTALLER -b -p $CONDA_DIR
     rm -f /tmp/$MINICONDA_INSTALLER
-
     export PATH=$CONDA_DIR/bin:$PATH
-
     # Remove defaults to avoid TOS prompt
     $CONDA_DIR/bin/conda config --system --remove channels defaults || true
     $CONDA_DIR/bin/conda config --system --add channels conda-forge
     $CONDA_DIR/bin/conda config --set always_yes yes --set changeps1 no
-
     # Install mamba from conda-forge
     $CONDA_DIR/bin/conda install -c conda-forge mamba
-
     # Install MEME pinned version from bioconda + conda-forge
-    $CONDA_DIR/bin/mamba create -n meme -c conda-forge -c bioconda -y "meme=5.5.8-0"
+    # Include ghostscript and imagemagick so MEME can convert EPS to PNG
+    $CONDA_DIR/bin/mamba create -n meme -c conda-forge -c bioconda -y "meme=5.5.8-0" ghostscript imagemagick
     $CONDA_DIR/bin/conda clean -afy
-
     mkdir -p /usr/local/bin
     for f in $CONDA_DIR/envs/meme/bin/* ; do
         if [ -f "$f" ] && [ -x "$f" ]; then
             ln -s "$f" /usr/local/bin/$(basename "$f") || true
         fi
     done
-
     if [ -x "/usr/local/bin/meme" ]; then
-        echo "MEME v5.5.0 installed at /usr/local/bin/meme"
+        echo "MEME v5.5.8 installed at /usr/local/bin/meme"
     else
         echo "Warning: MEME binary not found"
     fi
-
 %runscript
     export CONDA_DIR=/opt/conda
     export PATH=$CONDA_DIR/bin:$PATH
     if [ -f "$CONDA_DIR/bin/activate" ]; then
         . "$CONDA_DIR/bin/activate" meme >/dev/null 2>&1 || true
     fi
-    echo "MEME Suite v5.5.0 environment active."
+    echo "MEME Suite v5.5.8 environment active."
     exec /bin/bash -l
-
 %test
     /usr/local/bin/meme -version || true
     /usr/local/bin/fimo -version || true
