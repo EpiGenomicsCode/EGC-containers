@@ -1,0 +1,182 @@
+Bootstrap: docker
+From: ubuntu:22.04
+%labels
+    Author William KM Lai
+    Version 1.0
+    Description "MEME Suite 5.5.8 container (source build with OpenMPI support)"
+%help
+    This container builds MEME Suite v5.5.8 from source with OpenMPI
+    parallel support. Perl dependencies are provided via conda to avoid
+    manual CPAN installation issues.
+
+    Usage:
+      singularity shell meme.sif
+      singularity exec meme.sif meme -p 4 input.fa -dna -oc output/
+      singularity exec meme.sif meme-chip -meme-p 4 -h
+      singularity run meme.sif
+%environment
+    export CONDA_DIR=/opt/conda
+    export MEME_PREFIX=/opt/meme
+    export PATH=$MEME_PREFIX/bin:$CONDA_DIR/bin:$PATH
+    export PERL5LIB=$CONDA_DIR/lib/perl5/site_perl:$CONDA_DIR/lib/perl5
+    export LANG=C.UTF-8
+    export LC_ALL=C.UTF-8
+    export OMPI_MCA_btl_base_warn_component_unused=0
+    export OMPI_ALLOW_RUN_AS_ROOT=1
+    export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+%post
+    set -e -x
+
+    ##########################################################
+    # 1. System packages (compilers, OpenMPI, ghostscript, etc.)
+    ##########################################################
+    apt-get update && apt-get install -y --no-install-recommends \
+        wget ca-certificates bzip2 curl git \
+        build-essential autoconf automake libtool \
+        libopenmpi-dev openmpi-bin openmpi-common \
+        ghostscript imagemagick \
+        libssl-dev libbz2-dev liblzma-dev \
+        zlib1g-dev libncurses5-dev libncursesw5-dev \
+        libexpat1-dev sudo \
+        && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+    # Verify MPI is accessible
+    echo "=== Checking system MPI installation ==="
+    which mpicc  || { echo "ERROR: mpicc not found"; exit 1; }
+    which mpirun || { echo "ERROR: mpirun not found"; exit 1; }
+    mpicc --showme:version || true
+
+    ##########################################################
+    # 2. Install Miniconda (used only for Perl + Perl modules)
+    ##########################################################
+    CONDA_DIR=/opt/conda
+    MINICONDA_INSTALLER=Miniconda3-latest-Linux-x86_64.sh
+    wget --no-verbose https://repo.anaconda.com/miniconda/$MINICONDA_INSTALLER \
+        -O /tmp/$MINICONDA_INSTALLER
+    bash /tmp/$MINICONDA_INSTALLER -b -p $CONDA_DIR
+    rm -f /tmp/$MINICONDA_INSTALLER
+    export PATH=$CONDA_DIR/bin:$PATH
+
+    $CONDA_DIR/bin/conda config --system --remove channels defaults || true
+    $CONDA_DIR/bin/conda config --system --add channels conda-forge
+    $CONDA_DIR/bin/conda config --system --add channels bioconda
+    $CONDA_DIR/bin/conda config --set always_yes yes --set changeps1 no
+    $CONDA_DIR/bin/conda install -c conda-forge mamba
+
+    ##########################################################
+    # 3. Install Perl and all MEME Perl dependencies via conda
+    #    This avoids the pain of manual CPAN installs.
+    ##########################################################
+    $CONDA_DIR/bin/mamba install -c conda-forge -c bioconda -y \
+        perl \
+        perl-app-cpanminus \
+        perl-cgi \
+        perl-file-which \
+        perl-html-parser \
+        perl-html-template \
+        perl-html-tree \
+        perl-json \
+        perl-log-log4perl \
+        perl-math-cdf \
+        perl-module-build \
+        perl-sys-info \
+        perl-xml-parser \
+        perl-xml-simple \
+        perl-yaml \
+        python
+
+    $CONDA_DIR/bin/conda clean -afy
+
+    # Make conda perl available for the build
+    export PERL5LIB=$CONDA_DIR/lib/perl5/site_perl:$CONDA_DIR/lib/perl5
+
+    ##########################################################
+    # 4. Build MEME Suite 5.5.8 from source with MPI
+    #
+    #    In MEME 5.x, meme is a single binary (no separate
+    #    meme_p). When compiled with MPI, the same binary
+    #    accepts -p <nprocs> directly.
+    #
+    #    We use --with-mpidir=/usr to ensure configure finds
+    #    the system mpicc/mpirun and not anything from conda.
+    ##########################################################
+    MEME_VERSION=5.5.8
+    MEME_PREFIX=/opt/meme
+    cd /tmp
+    wget --no-verbose \
+        https://meme-suite.org/meme/meme-software/${MEME_VERSION}/meme-${MEME_VERSION}.tar.gz
+    tar xzf meme-${MEME_VERSION}.tar.gz
+    cd meme-${MEME_VERSION}
+
+    # Ensure system mpicc is found first, not shadowed by conda
+    export PATH=/usr/bin:$PATH
+
+    ./configure \
+        --prefix=${MEME_PREFIX} \
+        --with-mpidir=/usr \
+        --with-perl=$CONDA_DIR/bin/perl \
+        --with-python=$CONDA_DIR/bin/python \
+        --with-gs=$(which gs) \
+        --with-convert=$(which convert) \
+        --enable-build-libxml2 \
+        --enable-build-libxslt \
+        --enable-opt
+
+    # Verify configure detected MPI — look for MPICC and PARALLEL flags
+    echo "=== Configure MPI summary ==="
+    grep -E "^(MPICC|MPIRUN|MPI_CMD|MPIFLAGS)" config.log || true
+    if grep -q "MPIFLAGS.*PARALLEL" config.log; then
+        echo "SUCCESS: Configure detected MPI and set -DPARALLEL"
+    else
+        echo "ERROR: Configure did NOT detect MPI — meme -p will not work"
+        echo "=== Full MPI-related config.log lines ==="
+        grep -i "mpi" config.log || true
+        exit 1
+    fi
+
+    make -j$(nproc)
+    make install
+
+    # Clean up source
+    cd /tmp && rm -rf meme-${MEME_VERSION} meme-${MEME_VERSION}.tar.gz
+
+    ##########################################################
+    # 5. Verify installation
+    ##########################################################
+    if [ -x "${MEME_PREFIX}/bin/meme" ]; then
+        echo "SUCCESS: MEME v${MEME_VERSION} installed at ${MEME_PREFIX}/bin/meme"
+    else
+        echo "ERROR: MEME binary not found"
+        exit 1
+    fi
+
+    # Verify meme binary was linked against MPI
+    if ldd ${MEME_PREFIX}/bin/meme 2>/dev/null | grep -q "libmpi"; then
+        echo "SUCCESS: meme binary is linked against libmpi"
+    else
+        echo "WARNING: meme binary does not appear linked against libmpi"
+        echo "ldd output:"
+        ldd ${MEME_PREFIX}/bin/meme 2>/dev/null || true
+    fi
+%runscript
+    export CONDA_DIR=/opt/conda
+    export MEME_PREFIX=/opt/meme
+    export PATH=$MEME_PREFIX/bin:$CONDA_DIR/bin:$PATH
+    export PERL5LIB=$CONDA_DIR/lib/perl5/site_perl:$CONDA_DIR/lib/perl5
+    export OMPI_MCA_btl_base_warn_component_unused=0
+    export OMPI_ALLOW_RUN_AS_ROOT=1
+    export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+    echo "MEME Suite v5.5.8 environment active (MPI enabled)."
+    exec /bin/bash -l
+%test
+    export PATH=/opt/meme/bin:/opt/conda/bin:$PATH
+    export PERL5LIB=/opt/conda/lib/perl5/site_perl:/opt/conda/lib/perl5
+    export OMPI_ALLOW_RUN_AS_ROOT=1
+    export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
+    export OMPI_MCA_btl_base_warn_component_unused=0
+    echo "=== Version check ==="
+    meme -version || true
+    fimo --version || true
+    echo "=== MPI linkage check ==="
+    ldd $(which meme) 2>/dev/null | grep -i mpi && echo "PASS: MPI linked" || echo "FAIL: MPI not linked"
+
